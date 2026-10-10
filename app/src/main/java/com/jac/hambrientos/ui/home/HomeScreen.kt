@@ -27,12 +27,16 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -40,18 +44,33 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.jac.hambrientos.data.local.RestaurantPromotion
+import com.jac.hambrientos.data.local.Restaurant
+import com.jac.hambrientos.data.local.demoPromotions
+import com.jac.hambrientos.data.local.demoProducts
+import com.jac.hambrientos.data.local.demoRestaurants
+import com.jac.hambrientos.data.local.restaurantNameForId
+import com.jac.hambrientos.ui.cart.CartBadgeButton
 import com.jac.hambrientos.ui.theme.AccentGreen
 import com.jac.hambrientos.ui.theme.AccentYellow
 import com.jac.hambrientos.ui.theme.HambrientosTheme
@@ -64,22 +83,13 @@ import com.jac.hambrientos.ui.theme.TextPrimary
 import com.jac.hambrientos.ui.theme.TextSecondary
 import com.jac.hambrientos.ui.theme.WarmBackground
 import com.jac.hambrientos.ui.theme.WarmSurface
+import java.text.Normalizer
+import java.util.Locale
 
 private data class Category(
     val name: String,
     val emoji: String,
     val background: Color,
-)
-
-private data class Restaurant(
-    val id: String,
-    val name: String,
-    val category: String,
-    val rating: String,
-    val price: String,
-    val distance: String,
-    val imageUrl: String,
-    val deliveryTime: String = "5–10 min",
 )
 
 private val categories = listOf(
@@ -93,42 +103,54 @@ private val categories = listOf(
     Category("Comida rápida", "🌭", Color(0xFFFFE9BF)),
 )
 
-private val favorites = listOf(
-    Restaurant(
-        id = "1",
-        name = "La Esquina Sansi",
-        category = "Hamburguesas",
-        rating = "4.2",
-        price = "Bs 10–18",
-        distance = "120 m",
-        imageUrl = "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=900&q=80",
-    ),
-    Restaurant(
-        id = "2",
-        name = "Burger Lab",
-        category = "Comida casera",
-        rating = "4.3",
-        price = "Bs 15–25",
-        distance = "193 m",
-        imageUrl = "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=900&q=80",
-    ),
-)
+internal fun filterHomeRestaurants(
+    selectedCategory: String?,
+    searchQuery: String,
+): List<Restaurant> {
+    val normalizedQuery = searchQuery.normalizeForSearch()
+    return demoRestaurants.filter { restaurant ->
+        val matchesCategory = selectedCategory == null || restaurant.category == selectedCategory
+        val matchesSearch = normalizedQuery.isEmpty() ||
+            restaurant.name.normalizeForSearch().contains(normalizedQuery) ||
+            restaurant.category.normalizeForSearch().contains(normalizedQuery) ||
+            restaurant.description.normalizeForSearch().contains(normalizedQuery) ||
+            demoProducts.any { product ->
+                product.restaurantId == restaurant.id &&
+                    (product.name.normalizeForSearch().contains(normalizedQuery) ||
+                        product.category.normalizeForSearch().contains(normalizedQuery) ||
+                        product.description.normalizeForSearch().contains(normalizedQuery))
+            }
+        matchesCategory && matchesSearch
+    }
+}
 
-private val nearbyRestaurants = listOf(
-    Restaurant("5", "Café Central", "Cafetería", "4.6", "Bs 8–22", "80 m", "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=600&q=80", "2 min"),
-    Restaurant("6", "Pollos 15", "Pollo y combos", "4.5", "Bs 15–30", "140 m", "https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?auto=format&fit=crop&w=600&q=80", "3 min"),
-    Restaurant("7", "Verde Menta", "Comida saludable", "4.7", "Bs 18–32", "210 m", "https://images.unsplash.com/photo-1543362906-acfc16c67564?auto=format&fit=crop&w=600&q=80", "4 min"),
-    Restaurant("8", "La Caserita", "Comida casera", "4.4", "Bs 12–24", "260 m", "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=600&q=80", "4 min"),
-    Restaurant("9", "Sazón UMSS", "Menú del día", "4.3", "Bs 10–20", "320 m", "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=600&q=80", "5 min"),
-)
+private fun String.normalizeForSearch(): String = Normalizer
+    .normalize(trim(), Normalizer.Form.NFD)
+    .replace("\\p{M}+".toRegex(), "")
+    .lowercase(Locale.ROOT)
 
 @Composable
 fun HomeScreen(
     onMapClick: () -> Unit,
     onProfileClick: () -> Unit,
-    onRestaurantClick: (String) -> Unit,
+    onRestaurantClick: (    String) -> Unit,
+    onCartClick: () -> Unit,
+    cartItemCount: Int,
     modifier: Modifier = Modifier,
 ) {
+    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val visibleRestaurants = remember(selectedCategory, searchQuery) {
+        filterHomeRestaurants(
+            selectedCategory = selectedCategory,
+            searchQuery = searchQuery,
+        )
+    }
+    val favoriteRestaurants = visibleRestaurants.sortedByDescending { it.rating }.take(3)
+    val nearbyRestaurants = visibleRestaurants.sortedBy { it.distanceMeters }
+    val visiblePromotions = demoPromotions.filter { promotion ->
+        promotion.validToday && visibleRestaurants.any { it.id == promotion.restaurantId }
+    }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = WarmBackground,
@@ -154,75 +176,124 @@ fun HomeScreen(
                         .padding(horizontal = 20.dp),
                 ) {
                     Spacer(Modifier.height(18.dp))
-                    HomeHeader()
+                    HomeHeader(
+                        cartItemCount = cartItemCount,
+                        onCartClick = onCartClick,
+                    )
                     Spacer(Modifier.height(22.dp))
-                    SearchBar()
+                    SearchBar(
+                        query = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        onClear = { searchQuery = "" },
+                    )
                     Spacer(Modifier.height(30.dp))
                     SectionTitle(title = "Explora por categoría")
                     Spacer(Modifier.height(16.dp))
-                    CategoryGrid()
-                    Spacer(Modifier.height(34.dp))
-                    SectionTitle(
-                        title = "Favoritos de estudiantes",
-                        subtitle = "Los mejor calificados esta semana",
-                        action = "Ver todos",
+                    CategoryGrid(
+                        selectedCategory = selectedCategory,
+                        onCategoryClick = { category ->
+                            selectedCategory = if (selectedCategory == category) null else category
+                        },
                     )
-                }
-            }
-
-            item {
-                Spacer(Modifier.height(16.dp))
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    items(favorites) { restaurant ->
-                        RestaurantCard(
-                            name = restaurant.name,
-                            category = restaurant.category,
-                            rating = restaurant.rating,
-                            price = restaurant.price,
-                            distance = restaurant.distance,
-                            imageUrl = restaurant.imageUrl,
-                            onClick = { onRestaurantClick(restaurant.id) },
+                    if (visibleRestaurants.isEmpty()) {
+                        Spacer(Modifier.height(20.dp))
+                        EmptySearchResults()
+                    }
+                    if (visiblePromotions.isNotEmpty()) {
+                        Spacer(Modifier.height(34.dp))
+                        SectionTitle(
+                            title = "Promos de hoy",
+                            subtitle = "Ofertas locales por tiempo limitado",
                         )
                     }
                 }
             }
 
-            item {
-                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    Spacer(Modifier.height(28.dp))
-                    ClassBreakBanner()
-                    Spacer(Modifier.height(34.dp))
-                    SectionTitle(
-                        title = "Cerca de ti",
-                        subtitle = "Desde la entrada principal",
-                        action = "Ver mapa",
-                    )
+            if (visiblePromotions.isNotEmpty()) {
+                item {
                     Spacer(Modifier.height(16.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        items(visiblePromotions) { promotion ->
+                            PromotionCard(
+                                promotion = promotion,
+                                onClick = { onRestaurantClick(promotion.restaurantId.toString()) },
+                            )
+                        }
+                    }
                 }
             }
 
-            items(nearbyRestaurants) { restaurant ->
-                NearbyRestaurantCard(
-                    name = restaurant.name,
-                    category = restaurant.category,
-                    rating = restaurant.rating,
-                    price = restaurant.price,
-                    distance = restaurant.distance,
-                    deliveryTime = restaurant.deliveryTime,
-                    imageUrl = restaurant.imageUrl,
-                    onClick = { onRestaurantClick(restaurant.id) },
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
-                )
+            if (visibleRestaurants.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                        Spacer(Modifier.height(34.dp))
+                        SectionTitle(
+                            title = if (searchQuery.isBlank()) "Favoritos de estudiantes" else "Resultados",
+                            subtitle = if (searchQuery.isBlank()) "Los mejor calificados esta semana" else "Locales y platos que coinciden con tu búsqueda",
+                            action = if (searchQuery.isBlank()) "Ver todos" else null,
+                        )
+                    }
+                }
+
+                item {
+                    Spacer(Modifier.height(16.dp))
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        items(favoriteRestaurants) { restaurant ->
+                            RestaurantCard(
+                                name = restaurant.name,
+                                category = restaurant.category,
+                                rating = restaurant.rating.toString(),
+                                price = restaurant.priceRange,
+                                distance = "${restaurant.distanceMeters} m",
+                                imageUrl = restaurant.imageUrl,
+                                onClick = { onRestaurantClick(restaurant.id.toString()) },
+                            )
+                        }
+                    }
+                }
+
+                if (searchQuery.isBlank()) {
+                    item {
+                        Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                            Spacer(Modifier.height(28.dp))
+                            ClassBreakBanner()
+                            Spacer(Modifier.height(34.dp))
+                            SectionTitle(
+                                title = "Cerca de ti",
+                                subtitle = "Desde la entrada principal",
+                                action = "Ver mapa",
+                            )
+                            Spacer(Modifier.height(16.dp))
+                        }
+                    }
+
+                    items(nearbyRestaurants) { restaurant ->
+                        NearbyRestaurantCard(
+                            name = restaurant.name,
+                            category = restaurant.category,
+                            rating = restaurant.rating.toString(),
+                            price = restaurant.priceRange,
+                            distance = "${restaurant.distanceMeters} m",
+                            deliveryTime = "${(restaurant.distanceMeters / 55).coerceAtLeast(2)} min",
+                            imageUrl = restaurant.imageUrl,
+                            onClick = { onRestaurantClick(restaurant.id.toString()) },
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun HomeHeader() {
+private fun HomeHeader(cartItemCount: Int, onCartClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -235,7 +306,7 @@ private fun HomeHeader() {
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Text(
-                    text = "B",
+                    text = "H",
                     color = WarmSurface,
                     fontWeight = FontWeight.Black,
                     fontSize = 25.sp,
@@ -243,21 +314,21 @@ private fun HomeHeader() {
             }
         }
         Spacer(Modifier.width(11.dp))
-        Column {
-            Text(
-                text = "BOCADO",
-                color = TextPrimary,
-                fontWeight = FontWeight.Black,
-                fontSize = 18.sp,
-                letterSpacing = 1.sp,
-            )
-            Text(
-                text = "SANSI",
-                color = PrimaryOrange,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 11.sp,
-                letterSpacing = 3.sp,
-            )
+        Text(
+            text = "HAMBRIENTOS",
+            color = TextPrimary,
+            fontWeight = FontWeight.Black,
+            fontSize = 17.sp,
+            letterSpacing = 0.6.sp,
+        )
+        Spacer(Modifier.weight(1f))
+        Surface(
+            shape = CircleShape,
+            color = WarmSurface,
+            shadowElevation = 3.dp,
+            border = androidx.compose.foundation.BorderStroke(1.dp, OutlineWarm),
+        ) {
+            CartBadgeButton(itemCount = cartItemCount, onClick = onCartClick)
         }
     }
     Spacer(Modifier.height(27.dp))
@@ -289,45 +360,76 @@ private fun HomeHeader() {
 }
 
 @Composable
-fun SearchBar(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = WarmSurface,
-        shadowElevation = 5.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, OutlineWarm.copy(alpha = 0.7f)),
+private fun PromotionCard(
+    promotion: RestaurantPromotion,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.width(278.dp),
+        shape = RoundedCornerShape(23.dp),
+        colors = CardDefaults.cardColors(containerColor = AccentYellow),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(start = 17.dp, top = 10.dp, end = 9.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Buscar",
-                tint = TextSecondary,
-                modifier = Modifier.size(22.dp),
-            )
-            Spacer(Modifier.width(11.dp))
+        Column(modifier = Modifier.padding(17.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = restaurantNameForId(promotion.restaurantId),
+                    color = PrimaryDark,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                Surface(shape = RoundedCornerShape(50), color = AccentGreen) {
+                    Text(
+                        "HOY",
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(13.dp))
             Text(
-                text = "Buscar comida, local o plato...",
+                promotion.title,
+                color = TextPrimary,
+                fontWeight = FontWeight.Black,
+                fontSize = 18.sp,
+                maxLines = 2,
+            )
+            Text(
+                promotion.description,
                 color = TextSecondary,
-                fontSize = 14.sp,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
+                fontSize = 12.sp,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Surface(
-                modifier = Modifier.size(40.dp),
-                shape = RoundedCornerShape(13.dp),
-                color = SoftOrange,
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Tune,
-                        contentDescription = "Filtros",
-                        tint = PrimaryDark,
-                        modifier = Modifier.size(21.dp),
+            Spacer(Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                promotion.originalPrice?.let { originalPrice ->
+                    Text(
+                        text = "Bs ${originalPrice.toInt()}",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        textDecoration = TextDecoration.LineThrough,
                     )
+                    Spacer(Modifier.width(7.dp))
+                }
+                Text(
+                    text = "Bs ${promotion.promoPrice.toInt()}",
+                    color = PrimaryDark,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 20.sp,
+                )
+                Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = onClick,
+                    shape = RoundedCornerShape(13.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                    contentPadding = PaddingValues(horizontal = 13.dp, vertical = 8.dp),
+                ) {
+                    Text("Ver promo", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                 }
             }
         }
@@ -335,7 +437,76 @@ fun SearchBar(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun CategoryGrid() {
+fun SearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = WarmSurface,
+        shadowElevation = 5.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, OutlineWarm.copy(alpha = 0.7f)),
+    ) {
+        TextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Buscar comida, local o plato...", color = TextSecondary, fontSize = 14.sp) },
+            leadingIcon = {
+                Icon(Icons.Default.Search, "Buscar", tint = TextSecondary, modifier = Modifier.size(22.dp))
+            },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = onClear) {
+                        Icon(Icons.Default.Close, "Limpiar búsqueda", tint = PrimaryDark)
+                    }
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = "Filtros",
+                        tint = PrimaryDark,
+                        modifier = Modifier.size(21.dp),
+                    )
+                }
+            },
+            singleLine = true,
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                cursorColor = PrimaryOrange,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun EmptySearchResults() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = WarmSurface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, OutlineWarm),
+    ) {
+        Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Search, contentDescription = null, tint = PrimaryOrange, modifier = Modifier.size(30.dp))
+            Spacer(Modifier.height(10.dp))
+            Text("No encontramos resultados", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+            Spacer(Modifier.height(4.dp))
+            Text("Prueba con otro local, producto o categoría.", color = TextSecondary, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun CategoryGrid(
+    selectedCategory: String?,
+    onCategoryClick: (String) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         categories.chunked(4).forEach { rowItems ->
             Row(
@@ -347,6 +518,8 @@ private fun CategoryGrid() {
                         name = category.name,
                         emoji = category.emoji,
                         backgroundColor = category.background,
+                        selected = selectedCategory == category.name,
+                        onClick = { onCategoryClick(category.name) },
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -360,10 +533,12 @@ fun CategoryItem(
     name: String,
     emoji: String,
     backgroundColor: Color,
+    selected: Boolean,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier,
+        modifier = modifier.clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Surface(
@@ -371,7 +546,7 @@ fun CategoryItem(
                 .fillMaxWidth()
                 .aspectRatio(1f),
             shape = RoundedCornerShape(22.dp),
-            color = backgroundColor,
+            color = if (selected) PrimaryOrange else backgroundColor,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Text(text = emoji, fontSize = 30.sp)
@@ -380,8 +555,8 @@ fun CategoryItem(
         Spacer(Modifier.height(8.dp))
         Text(
             text = name,
-            color = TextPrimary,
-            fontWeight = FontWeight.SemiBold,
+            color = if (selected) PrimaryOrange else TextPrimary,
+            fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
             fontSize = 11.sp,
             lineHeight = 14.sp,
             maxLines = 2,
@@ -660,6 +835,8 @@ private fun HomeScreenPreview() {
             onMapClick = {},
             onProfileClick = {},
             onRestaurantClick = {},
+            onCartClick = {},
+            cartItemCount = 2,
         )
     }
 }

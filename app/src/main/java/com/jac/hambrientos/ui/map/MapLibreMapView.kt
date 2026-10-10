@@ -30,19 +30,35 @@ import org.maplibre.android.annotations.Icon
 import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory.lineCap
+import org.maplibre.android.style.layers.PropertyFactory.lineColor
+import org.maplibre.android.style.layers.PropertyFactory.lineJoin
+import org.maplibre.android.style.layers.PropertyFactory.lineWidth
+import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.tile.TileOperation
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
 
 private const val MapStyleUrl = "https://tiles.openfreemap.org/styles/liberty"
-private const val MapLogTag = "BocadoMap"
+private const val MapLogTag = "HambrientosMap"
 private const val InitialZoom = 15.7
+private const val RouteSourceId = "active-route-source"
+private const val RouteLayerId = "active-route-layer"
 private val UmssCampus = LatLng(-17.3935, -66.1455)
 
 @Composable
 fun MapLibreMapView(
     restaurants: List<MapRestaurant>,
+    currentLocation: LatLng?,
+    destination: MapRestaurant?,
+    routePoints: List<LatLng>,
     onRestaurantSelected: (MapRestaurant) -> Unit,
     onMapClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -99,7 +115,7 @@ fun MapLibreMapView(
         }
     }
 
-    LaunchedEffect(map, styleLoaded, restaurants) {
+    LaunchedEffect(map, styleLoaded, restaurants, currentLocation, destination) {
         val mapLibreMap = map ?: return@LaunchedEffect
         if (!styleLoaded) return@LaunchedEffect
 
@@ -115,15 +131,84 @@ fun MapLibreMapView(
         )
 
         val restaurantIcon = createMarkerIcon(context, Color.rgb(241, 112, 41), 36)
+        val destinationIcon = createMarkerIcon(context, Color.rgb(211, 55, 48), 44)
         restaurants.forEach { restaurant ->
             val marker = mapLibreMap.addMarker(
                 MarkerOptions()
                     .position(restaurant.position)
                     .title(restaurant.name)
                     .snippet("${restaurant.category} · ${restaurant.price}")
-                    .icon(restaurantIcon),
+                    .icon(if (restaurant.id == destination?.id) destinationIcon else restaurantIcon),
             )
             restaurantIdsByMarker[marker.id] = restaurant.id
+        }
+
+        currentLocation?.let { location ->
+            mapLibreMap.addMarker(
+                MarkerOptions()
+                    .position(location)
+                    .title("Tu ubicación")
+                    .icon(createMarkerIcon(context, Color.rgb(35, 112, 214), 40)),
+            )
+        }
+
+        if (destination != null && restaurants.none { it.id == destination.id }) {
+            mapLibreMap.addMarker(
+                MarkerOptions()
+                    .position(destination.position)
+                    .title(destination.name)
+                    .snippet("Destino")
+                    .icon(destinationIcon),
+            )
+        }
+    }
+
+    LaunchedEffect(map, styleLoaded, routePoints) {
+        val mapLibreMap = map ?: return@LaunchedEffect
+        if (!styleLoaded) return@LaunchedEffect
+        mapLibreMap.getStyle { style ->
+            style.removeLayer(RouteLayerId)
+            style.removeSource(RouteSourceId)
+
+            if (routePoints.size >= 2) {
+                val lineString = LineString.fromLngLats(
+                    routePoints.map { Point.fromLngLat(it.longitude, it.latitude) },
+                )
+                style.addSource(GeoJsonSource(RouteSourceId, lineString))
+                style.addLayer(
+                    LineLayer(RouteLayerId, RouteSourceId).withProperties(
+                        lineColor("#E95B22"),
+                        lineWidth(6f),
+                        lineCap(Property.LINE_CAP_ROUND),
+                        lineJoin(Property.LINE_JOIN_ROUND),
+                    ),
+                )
+            }
+        }
+    }
+
+    LaunchedEffect(map, routePoints, currentLocation, destination) {
+        val mapLibreMap = map ?: return@LaunchedEffect
+        if (routePoints.size < 2 || currentLocation == null || destination == null) {
+            return@LaunchedEffect
+        }
+        val bounds = LatLngBounds.Builder()
+            .includes(routePoints + currentLocation + destination.position)
+            .build()
+        val density = context.resources.displayMetrics.density
+        val sidePadding = (48 * density).toInt()
+        val bottomPadding = (220 * density).toInt()
+        mapView.post {
+            mapLibreMap.animateCamera(
+                CameraUpdateFactory.newLatLngBounds(
+                    bounds,
+                    sidePadding,
+                    sidePadding,
+                    sidePadding,
+                    bottomPadding,
+                ),
+                650,
+            )
         }
     }
 

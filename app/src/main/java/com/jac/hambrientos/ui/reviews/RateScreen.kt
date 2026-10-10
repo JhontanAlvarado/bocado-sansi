@@ -389,7 +389,7 @@ private fun SuccessContent(
         )
         Spacer(Modifier.height(11.dp))
         Text(
-            text = "Gracias por ayudar a la comunidad Sansi a comer mejor.",
+            text = "Gracias por ayudar a la comunidad de Hambrientos a comer mejor.",
             color = TextSecondary,
             fontSize = 15.sp,
             lineHeight = 22.sp,

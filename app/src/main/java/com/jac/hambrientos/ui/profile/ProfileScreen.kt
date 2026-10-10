@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
@@ -62,6 +63,7 @@ import com.jac.hambrientos.ui.theme.WarmSurface
 fun ProfileScreen(
     onHomeClick: () -> Unit,
     onMapClick: () -> Unit,
+    onOrdersClick: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Scaffold(
@@ -104,6 +106,7 @@ fun ProfileScreen(
                 Spacer(Modifier.height(12.dp))
                 ProfileMenuCard(
                     items = listOf(
+                        ProfileMenuEntry("Mis pedidos", Icons.AutoMirrored.Filled.ReceiptLong, onOrdersClick),
                         ProfileMenuEntry("Mis reseñas", Icons.Default.RateReview),
                         ProfileMenuEntry("Mis favoritos", Icons.Default.Favorite),
                         ProfileMenuEntry("Promociones guardadas", Icons.Default.Bookmark),
@@ -276,6 +279,7 @@ private fun ProfileSectionTitle(title: String) {
 private data class ProfileMenuEntry(
     val title: String,
     val icon: ImageVector,
+    val onClick: () -> Unit = {},
 )
 
 @Composable
@@ -292,7 +296,7 @@ private fun ProfileMenuCard(items: List<ProfileMenuEntry>) {
                 ProfileMenuItem(
                     text = item.title,
                     icon = item.icon,
-                    onClick = {},
+                    onClick = item.onClick,
                 )
                 if (index < items.lastIndex) {
                     HorizontalDivider(

@@ -37,7 +37,7 @@ fun HambrientosTheme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    // Dynamic colors stay disabled by default to preserve the Bocado Sansi identity.
+    // Dynamic colors stay disabled by default to preserve the Hambrientos identity.
     val colorScheme = if (darkTheme && dynamicColor) DarkColorScheme else LightColorScheme
 
     MaterialTheme(

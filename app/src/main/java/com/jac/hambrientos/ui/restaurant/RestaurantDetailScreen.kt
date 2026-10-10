@@ -26,11 +26,11 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -40,20 +40,31 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.jac.hambrientos.ui.map.demoMapRestaurants
+import com.jac.hambrientos.data.local.RestaurantProduct
+import com.jac.hambrientos.data.local.RestaurantPromotion
+import com.jac.hambrientos.data.local.productsForRestaurant
+import com.jac.hambrientos.data.local.promotionsForRestaurant
+import com.jac.hambrientos.data.local.restaurantById
+import com.jac.hambrientos.ui.cart.AddToCartResult
+import com.jac.hambrientos.ui.cart.CartBadgeButton
+import com.jac.hambrientos.ui.cart.CartState
 import com.jac.hambrientos.ui.theme.AccentGreen
 import com.jac.hambrientos.ui.theme.AccentYellow
 import com.jac.hambrientos.ui.theme.HambrientosTheme
@@ -75,8 +86,7 @@ private data class RestaurantUiModel(
     val distance: String,
     val schedule: String,
     val imageUrl: String,
-    val latitude: Double,
-    val longitude: Double,
+    val description: String,
 )
 
 private data class RatingItem(val label: String, val value: Float)
@@ -88,41 +98,18 @@ private val ratingItems = listOf(
     RatingItem("Atención", 4.4f),
 )
 
-private fun restaurantFor(restaurantId: String): RestaurantUiModel = when (restaurantId) {
-    "2", "burger-lab" -> restaurantUiModel("2", "Burger Lab", "Comida casera", "4.3", 96, "Bs 15–25", "193 m", "11:30–22:30", "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=1200&q=85")
-    "3", "dona-meche" -> restaurantUiModel("3", "Doña Meche", "Comida casera", "4.5", 91, "Bs 12–20", "160 m", "10:30–20:30", "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=1200&q=85")
-    "4", "pizza-patio" -> restaurantUiModel("4", "Pizza Patio", "Pizza", "4.4", 73, "Bs 18–32", "230 m", "12:00–22:30", "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1200&q=85")
-    "5", "cafe-central" -> restaurantUiModel("5", "Café Central", "Cafetería", "4.6", 82, "Bs 8–22", "80 m", "07:30–20:00", "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=1200&q=85")
-    "6", "pollos-15" -> restaurantUiModel("6", "Pollos 15", "Pollo y combos", "4.5", 104, "Bs 15–30", "140 m", "11:00–22:00", "https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?auto=format&fit=crop&w=1200&q=85")
-    "7", "verde-menta" -> restaurantUiModel("7", "Verde Menta", "Comida saludable", "4.7", 68, "Bs 18–32", "210 m", "09:00–20:00", "https://images.unsplash.com/photo-1543362906-acfc16c67564?auto=format&fit=crop&w=1200&q=85")
-    "8", "la-caserita" -> restaurantUiModel("8", "La Caserita", "Comida casera", "4.4", 119, "Bs 12–24", "260 m", "10:30–21:00", "https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=1200&q=85")
-    "9", "sazon-umss" -> restaurantUiModel("9", "Sazón UMSS", "Menú del día", "4.3", 77, "Bs 10–20", "320 m", "10:00–18:00", "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1200&q=85")
-    else -> restaurantUiModel("1", "La Esquina Sansi", "Hamburguesas", "4.2", 128, "Bs 10–18", "120 m", "11:00–22:00", "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=1200&q=85")
-}
-
-private fun restaurantUiModel(
-    mapRestaurantId: String,
-    name: String,
-    category: String,
-    rating: String,
-    reviewCount: Int,
-    price: String,
-    distance: String,
-    schedule: String,
-    imageUrl: String,
-): RestaurantUiModel {
-    val position = demoMapRestaurants.firstOrNull { it.id == mapRestaurantId }?.position
+private fun restaurantFor(restaurantId: Int): RestaurantUiModel {
+    val restaurant = restaurantById(restaurantId) ?: restaurantById(1)!!
     return RestaurantUiModel(
-        name = name,
-        category = category,
-        rating = rating,
-        reviewCount = reviewCount,
-        price = price,
-        distance = distance,
-        schedule = schedule,
-        imageUrl = imageUrl,
-        latitude = position?.latitude ?: -17.3935,
-        longitude = position?.longitude ?: -66.1455,
+        name = restaurant.name,
+        category = restaurant.category,
+        rating = restaurant.rating.toString(),
+        reviewCount = 60 + restaurant.id * 11,
+        price = restaurant.priceRange,
+        distance = "${restaurant.distanceMeters} m",
+        schedule = restaurant.hours,
+        imageUrl = restaurant.imageUrl,
+        description = restaurant.description,
     )
 }
 
@@ -131,24 +118,25 @@ fun RestaurantDetailScreen(
     restaurantId: String,
     onBackClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onDirectionsClick: (() -> Unit)? = null,
+    onDirectionsClick: () -> Unit,
     onRateClick: () -> Unit,
+    onCartClick: () -> Unit,
+    cartState: CartState,
 ) {
-    val restaurant = restaurantFor(restaurantId)
-    val context = LocalContext.current
-
+    val numericRestaurantId = restaurantId.toIntOrNull()
+        ?.takeIf { restaurantById(it) != null }
+        ?: 1
+    val restaurant = restaurantFor(numericRestaurantId)
+    val products = remember(numericRestaurantId) { productsForRestaurant(numericRestaurantId) }
+    val promotions = remember(numericRestaurantId) { promotionsForRestaurant(numericRestaurantId) }
+    var pendingProduct by remember { mutableStateOf<RestaurantProduct?>(null) }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = WarmSurface,
         bottomBar = {
             RestaurantBottomBar(
                 onDirectionsClick = {
-                    onDirectionsClick?.invoke() ?: openDirections(
-                        context = context,
-                        latitude = restaurant.latitude,
-                        longitude = restaurant.longitude,
-                        restaurantName = restaurant.name,
-                    )
+                    onDirectionsClick()
                 },
                 onRateClick = onRateClick,
             )
@@ -161,7 +149,12 @@ fun RestaurantDetailScreen(
             contentPadding = PaddingValues(bottom = 30.dp),
         ) {
             item {
-                HeroSection(restaurant = restaurant, onBackClick = onBackClick)
+                HeroSection(
+                    restaurant = restaurant,
+                    onBackClick = onBackClick,
+                    cartItemCount = cartState.itemCount,
+                    onCartClick = onCartClick,
+                )
                 Column(modifier = Modifier.padding(horizontal = 20.dp)) {
                     Spacer(Modifier.height(22.dp))
                     RestaurantHeading(restaurant)
@@ -175,15 +168,37 @@ fun RestaurantDetailScreen(
                     SectionTitle("Sobre el lugar")
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        text = "Comida rica, porciones generosas y precios pensados para estudiantes. A pocos minutos del campus.",
+                        text = restaurant.description,
                         color = TextSecondary,
                         fontSize = 15.sp,
                         lineHeight = 23.sp,
                     )
-                    Spacer(Modifier.height(32.dp))
-                    SectionTitle("Menú y precios")
-                    Spacer(Modifier.height(14.dp))
-                    MenuCard()
+                    if (promotions.isNotEmpty()) {
+                        Spacer(Modifier.height(32.dp))
+                        SectionTitle("Promos de hoy")
+                        Spacer(Modifier.height(14.dp))
+                        promotions.forEach { promotion ->
+                            DetailPromotionCard(promotion)
+                            Spacer(Modifier.height(10.dp))
+                        }
+                    }
+                    if (products.isNotEmpty()) {
+                        Spacer(Modifier.height(24.dp))
+                        SectionTitle("Menú")
+                        Spacer(Modifier.height(14.dp))
+                        products.forEach { product ->
+                            ProductCard(
+                                product = product,
+                                onAdd = {
+                                    when (cartState.addProduct(product)) {
+                                        AddToCartResult.Added -> Unit
+                                        AddToCartResult.DifferentRestaurant -> pendingProduct = product
+                                    }
+                                },
+                            )
+                            Spacer(Modifier.height(12.dp))
+                        }
+                    }
                     Spacer(Modifier.height(32.dp))
                     SectionTitle("¿Qué dicen los estudiantes?")
                     Spacer(Modifier.height(14.dp))
@@ -203,10 +218,42 @@ fun RestaurantDetailScreen(
             }
         }
     }
+
+    pendingProduct?.let { product ->
+        AlertDialog(
+            onDismissRequest = { pendingProduct = null },
+            title = { Text("Ya tienes productos de otro local") },
+            text = {
+                Text("Para agregar ${product.name}, primero debemos vaciar el carrito actual.")
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingProduct = null }) {
+                    Text("Cancelar", color = TextSecondary)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        cartState.clear()
+                        cartState.addProduct(product)
+                        pendingProduct = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                ) {
+                    Text("Vaciar carrito y agregar")
+                }
+            },
+        )
+    }
 }
 
 @Composable
-private fun HeroSection(restaurant: RestaurantUiModel, onBackClick: () -> Unit) {
+private fun HeroSection(
+    restaurant: RestaurantUiModel,
+    onBackClick: () -> Unit,
+    cartItemCount: Int,
+    onCartClick: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -228,6 +275,18 @@ private fun HeroSection(restaurant: RestaurantUiModel, onBackClick: () -> Unit) 
         ) {
             HeroIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Volver", onBackClick)
             Spacer(Modifier.weight(1f))
+            Surface(
+                shape = CircleShape,
+                color = WarmSurface.copy(alpha = 0.94f),
+                shadowElevation = 4.dp,
+            ) {
+                CartBadgeButton(
+                    itemCount = cartItemCount,
+                    onClick = onCartClick,
+                    iconTint = TextPrimary,
+                )
+            }
+            Spacer(Modifier.width(10.dp))
             HeroIconButton(Icons.Default.FavoriteBorder, "Agregar a favoritos", {})
             Spacer(Modifier.width(10.dp))
             HeroIconButton(Icons.Default.Share, "Compartir", {})
@@ -352,28 +411,109 @@ private fun RatingsCard() {
 }
 
 @Composable
-private fun MenuCard() {
+private fun DetailPromotionCard(promotion: RestaurantPromotion) {
     Card(
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFAF4)),
+        colors = CardDefaults.cardColors(containerColor = AccentYellow),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 18.dp)) {
-            MenuItem("Hamburguesa Sansi", "Bs 18")
-            HorizontalDivider(color = OutlineWarm)
-            MenuItem("Combo estudiantil", "Bs 22")
+        Column(modifier = Modifier.padding(17.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    promotion.title,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                Surface(shape = RoundedCornerShape(50), color = AccentGreen) {
+                    Text(
+                        "HOY",
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(5.dp))
+            Text(promotion.description, color = TextSecondary, fontSize = 12.sp)
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                promotion.originalPrice?.let {
+                    Text(
+                        "Bs ${it.toInt()}",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        textDecoration = TextDecoration.LineThrough,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    "Bs ${promotion.promoPrice.toInt()}",
+                    color = PrimaryDark,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 19.sp,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun MenuItem(name: String, price: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 17.dp),
-        verticalAlignment = Alignment.CenterVertically,
+private fun ProductCard(product: RestaurantProduct, onAdd: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = WarmSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, OutlineWarm),
     ) {
-        Text(name, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-        Text(price, color = PrimaryDark, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AsyncImage(
+                model = product.imageUrl,
+                contentDescription = product.name,
+                modifier = Modifier
+                    .size(82.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(SoftOrange),
+                contentScale = ContentScale.Crop,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(product.name, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    product.description,
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                    maxLines = 2,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Bs ${product.price.toInt()}",
+                        color = PrimaryDark,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 14.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = onAdd,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 7.dp),
+                    ) {
+                        Text("Agregar", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -482,7 +622,10 @@ private fun RestaurantDetailPreview() {
         RestaurantDetailScreen(
             restaurantId = "1",
             onBackClick = {},
+            onDirectionsClick = {},
             onRateClick = {},
+            onCartClick = {},
+            cartState = remember { CartState() },
         )
     }
 }

@@ -1,5 +1,10 @@
 package com.jac.hambrientos.ui.map
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tune
@@ -34,7 +40,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,11 +53,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.core.content.ContextCompat
 import com.jac.hambrientos.ui.home.BottomNavigationBar
 import com.jac.hambrientos.ui.theme.AccentGreen
 import com.jac.hambrientos.ui.theme.OutlineWarm
@@ -59,18 +70,110 @@ import com.jac.hambrientos.ui.theme.TextPrimary
 import com.jac.hambrientos.ui.theme.TextSecondary
 import com.jac.hambrientos.ui.theme.WarmBackground
 import com.jac.hambrientos.ui.theme.WarmSurface
+import org.maplibre.android.geometry.LatLng
+import kotlin.math.ceil
 
 private const val UnderBs15Filter = "< Bs15"
 
 @Composable
 fun MapScreen(
+    destinationRestaurantId: String? = null,
     onHomeClick: () -> Unit,
     onProfileClick: () -> Unit,
     onRestaurantClick: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val routeService = remember { OsrmRouteService() }
     var selectedFilter by rememberSaveable { mutableStateOf("Todos") }
     var selectedRestaurant by remember { mutableStateOf<MapRestaurant?>(null) }
+    var activeDestinationId by rememberSaveable(destinationRestaurantId) {
+        mutableStateOf(destinationRestaurantId)
+    }
+    val destination = remember(activeDestinationId) {
+        demoMapRestaurants.firstOrNull { it.id == activeDestinationId }
+    }
+    var currentLocation by remember(activeDestinationId) { mutableStateOf<LatLng?>(null) }
+    var routeState by remember(activeDestinationId) {
+        mutableStateOf<RouteUiState>(RouteUiState.Idle)
+    }
+    var locationRequestNonce by remember { mutableIntStateOf(0) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+    ) { permissions ->
+        if (permissions.values.any { it }) {
+            routeState = RouteUiState.Locating
+            locationRequestNonce++
+        } else {
+            routeState = RouteUiState.PermissionDenied
+        }
+    }
+
+    fun startLocationFlow() {
+        if (hasLocationPermission(context)) {
+            routeState = RouteUiState.Locating
+            locationRequestNonce++
+        } else {
+            routeState = RouteUiState.RequestingPermission
+            permissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                ),
+            )
+        }
+    }
+
+    LaunchedEffect(destination?.id) {
+        if (destination == null) {
+            currentLocation = null
+            routeState = RouteUiState.Idle
+        } else {
+            startLocationFlow()
+        }
+    }
+
+    DisposableEffect(locationRequestNonce, destination?.id) {
+        if (locationRequestNonce == 0 || destination == null) {
+            onDispose { }
+        } else {
+            routeState = RouteUiState.Locating
+            var disposed = false
+            val cancellation = requestCurrentLocation(
+                context = context,
+                onLocation = { location ->
+                    if (!disposed) {
+                        currentLocation = LatLng(location.latitude, location.longitude)
+                        routeState = RouteUiState.Calculating
+                    }
+                },
+                onUnavailable = {
+                    if (!disposed) routeState = RouteUiState.LocationUnavailable
+                },
+                onError = {
+                    if (!disposed) routeState = RouteUiState.LocationUnavailable
+                },
+            )
+            onDispose {
+                disposed = true
+                cancellation.cancel()
+            }
+        }
+    }
+
+    LaunchedEffect(currentLocation, destination?.id) {
+        val origin = currentLocation ?: return@LaunchedEffect
+        val routeDestination = destination ?: return@LaunchedEffect
+        routeState = RouteUiState.Calculating
+        routeState = try {
+            RouteUiState.Loaded(routeService.route(origin, routeDestination.position))
+        } catch (error: Exception) {
+            RouteUiState.Error(
+                error.message ?: "No pudimos calcular la ruta. Intenta nuevamente.",
+            )
+        }
+    }
     val visibleRestaurants = remember(selectedFilter) {
         if (selectedFilter == UnderBs15Filter) {
             demoMapRestaurants.filter(MapRestaurant::isUnderBs15)
@@ -98,6 +201,9 @@ fun MapScreen(
             MapLibreMapView(
                 modifier = Modifier.fillMaxSize(),
                 restaurants = visibleRestaurants,
+                currentLocation = currentLocation,
+                destination = destination,
+                routePoints = (routeState as? RouteUiState.Loaded)?.route?.points.orEmpty(),
                 onRestaurantSelected = { selectedRestaurant = it },
                 onMapClick = { selectedRestaurant = null },
             )
@@ -121,18 +227,157 @@ fun MapScreen(
                 )
             }
 
-            selectedRestaurant?.let { restaurant ->
-                MapRestaurantCard(
-                    restaurant = restaurant,
-                    onViewRestaurant = { onRestaurantClick(restaurant.id) },
+            if (destination != null) {
+                RouteStatusCard(
+                    destination = destination,
+                    state = routeState,
+                    onRetry = {
+                        currentLocation = null
+                        startLocationFlow()
+                    },
+                    onCancel = {
+                        activeDestinationId = null
+                        currentLocation = null
+                        routeState = RouteUiState.Idle
+                        selectedRestaurant = null
+                    },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(16.dp),
                 )
+            } else {
+                selectedRestaurant?.let { restaurant ->
+                    MapRestaurantCard(
+                        restaurant = restaurant,
+                        onViewRestaurant = { onRestaurantClick(restaurant.id) },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(16.dp),
+                    )
+                }
             }
         }
     }
 }
+
+@Composable
+private fun RouteStatusCard(
+    destination: MapRestaurant,
+    state: RouteUiState,
+    onRetry: () -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = WarmSurface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = CircleShape, color = SoftOrange) {
+                    Icon(
+                        Icons.Default.Navigation,
+                        contentDescription = null,
+                        tint = PrimaryOrange,
+                        modifier = Modifier.padding(8.dp).size(20.dp),
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = "Cómo llegar a ${destination.name}",
+                    color = TextPrimary,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+
+            when (state) {
+                RouteUiState.Idle,
+                RouteUiState.RequestingPermission -> RouteMessage("Solicitando permiso de ubicación…")
+                RouteUiState.Locating -> RouteMessage("Buscando tu ubicación actual…")
+                RouteUiState.Calculating -> RouteMessage("Calculando la mejor ruta disponible…")
+                RouteUiState.PermissionDenied -> RouteMessage(
+                    "Necesitamos permiso de ubicación para calcular cómo llegar.",
+                )
+                RouteUiState.LocationUnavailable -> RouteMessage(
+                    "No pudimos obtener tu ubicación. Activa la ubicación e intenta otra vez.",
+                )
+                is RouteUiState.Error -> RouteMessage(
+                    "No pudimos obtener la ruta. ${state.message}",
+                )
+                is RouteUiState.Loaded -> {
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        RouteMetric("Distancia", formatDistance(state.route.distanceMeters))
+                        RouteMetric("Tiempo estimado", formatDuration(state.route.durationSeconds))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Referencia vehicular: el servidor público de OSRM no ofrece perfil peatonal.",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (state is RouteUiState.PermissionDenied ||
+                    state is RouteUiState.LocationUnavailable ||
+                    state is RouteUiState.Error
+                ) {
+                    Button(
+                        onClick = onRetry,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                    ) {
+                        Text("Reintentar", fontWeight = FontWeight.Bold)
+                    }
+                }
+                Button(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryDark),
+                ) {
+                    Text("Cancelar ruta", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouteMessage(message: String) {
+    Text(message, color = TextSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+}
+
+@Composable
+private fun RouteMetric(label: String, value: String) {
+    Column {
+        Text(label, color = TextSecondary, fontSize = 11.sp)
+        Text(value, color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+    }
+}
+
+private fun hasLocationPermission(context: Context): Boolean =
+    ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+    ) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+
+private fun formatDistance(meters: Double): String =
+    if (meters < 1_000) "${meters.toInt()} m" else "%.1f km".format(meters / 1_000)
+
+private fun formatDuration(seconds: Double): String =
+    "${ceil(seconds / 60).toInt().coerceAtLeast(1)} min"
 
 @Composable
 private fun MapSearchBar(modifier: Modifier = Modifier) {
